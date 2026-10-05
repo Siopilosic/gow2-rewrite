@@ -1,0 +1,38 @@
+#addr	return	params (type name, ...)   -- applied by ApplyCore.java; types from analysis/structs.txt or u8/u16/u32/s32/ptr/char*
+00189098	u32	WadRecordHeader* hdr, ptr data
+0018d6d8	u32	WadRecordHeader* hdr, ptr data
+0018d738	u32	WadRecordHeader* hdr
+0018d9a0	ptr	u32 tag
+0018d988	void	u32 tag, ptr handler
+00185748	void	WadRecordHeader* hdr, ptr data
+00185978	void	WadRecordHeader* hdr, ptr data
+001859f0	void	WadRecordHeader* hdr, ptr data
+00189160	void	char* name, u16 tag, u16 param
+00189200	void	char* name, u32 low16, u32 high16, u16 param
+00189640	void	char* name, u32 parent, u32 id, u32 arg_a3, u32 arg_t0, u32 arg_t1
+00189728	void	char* name, u32 parent, u32 id, u32 arg_a3, u32 arg_t0, u32 arg_t1, u32 arg_t2, u32 arg_t3
+00189870	void	char* name, u32 id, u32 a2, u32 a3, u32 t0, u32 t1, char* name2, u32 param
+001899e8	void	char* name, u32 id
+00186f18	void
+00187048	MasterServer*	RootObject* this, BootServerPayload* data
+00185be0	PolyObject*	MasterServer* this, BootServerPayload* data
+00160bc8	PolyObject*	PolyObject* this, BootServerPayload* data
+0027f9f0	PolyObject*	MasterServer* this, WadRecordHeader* hdr, ptr data
+00273290	PolyObject*	MasterServer* this, ptr data
+00272fd8	u32	MasterServer* this, PolyObject* child
+00277200	void	MasterServer* this
+0027f8f8	void	MasterServer* this, PolyObject* child
+0027f920	u32	MasterServer* this, PolyObject* child
+00277118	void	PolyObject* this
+00288b10	void	PooledServer* this
+0028bcf0	void	PooledServer* this
+0027c0b0	PolyObject*	PooledServer* this, WadRecordHeader* hdr, ptr data
+00288f40	u32	PooledServer* this, ptr data
+0028c020	u32	PooledServer* this, ptr data
+0027cb48	void	PooledServer* this, GoClassA4* ctx
+0027cc00	GoClassA4*	PooledServer* this
+0027ce10	ptr	PooledServer* this
+00140248	GoClassA4*	GoClassA4* this, ptr descriptor
+001745d8	TextureObject*	TextureObject* this, TxrPayload* data
+0018d758	ptr	ptr data, u32 size
+001871f8	ptr	char* name

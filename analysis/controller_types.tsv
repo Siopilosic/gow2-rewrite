@@ -1,0 +1,14 @@
+vtable	type_name	hfsm	slot1_dtor	slot2_create	slot5_factory	slot9_hfsm_fn
+002efcb0	ArrowEmitter	hfsmArrowEmitter	0027b908	00270b58	00270ac0	00270b20
+002efd08	HeroBreak	hfsmHeroBreak	0027b8d8	00270a00	00270968	002709c8
+002efd60	SavePoint	hfsmSavePoint	0027b8a8	0026ca30	0026c998	0026c9f8
+002efdb8	Breakable	hfsmBreakable	0027b850	0026ba38	0026b9a0	0026ba00
+002efe10	IO_CSM		0027b7c0	0026b7e0	0026b738	0026b798
+002efe68	IO_TandF		0027b730	0026b558	0026b4b0	0026b510
+002efec0	IO_Misc		0027b6a0	0026b2d0	0026b228	0026b288
+002eff18	PegasusEnemy	hfsmPegasusEnemy	0027b648	0026af58	0026aec0	0026af20
+002eff70	Enemy1	hfsmEnemy1	0027b5f0	0026a730	0026a698	0026a6f8
+002effc8	Player	hfsmPlayer	0027b598	0026a3a0	0026a308	0026a368
+002f0020	Reactive	hfsmReactive	0027b538	0026a0f8	0026a060	0026a0c0
+002f0078	Pegasus	hfsmPegasus	0027b4e0	00269e60	00269dc8	00269e28
+002f1730	BalanceGeom	hfsmBalanceGeom	0027b1f8	00193008	00192f70	00192fd0

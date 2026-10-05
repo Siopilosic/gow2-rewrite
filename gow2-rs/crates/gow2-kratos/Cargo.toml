@@ -1,0 +1,10 @@
+﻿[package]
+name = "gow2-kratos"
+description = "Kratos's controller and combat logic, ported from the decompiled game. No engine types."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+gow2-skel.workspace = true
+gow2-formats.workspace = true

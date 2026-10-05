@@ -1,0 +1,64 @@
+# Originals and copyrighted game material (never commit)
+God of War II.iso
+*.iso
+extracted/
+GOW2 Extract/
+snapshots/
+
+# Ghidra project and databases
+ghidra/
+Decomipling God of War 2.rep/
+*.gpr
+*.rep/
+
+# Generated or derived from game data
+analysis/exports/
+analysis/disasm/
+analysis/core_decomp/
+analysis/audio/
+analysis/levels/
+analysis/runtime/
+analysis/textures/
+analysis/textures_rs/
+analysis/models/
+analysis/materials/
+analysis/dc/
+analysis/vu/
+analysis/cameras/
+analysis/decomp/
+
+# Emulator (contains BIOS, saves, states) and reference captures
+tools/pcsx2/
+reference/
+*.mp4
+*.p2s
+*.sav
+*.ps2
+*.bin
+*.mcd
+
+# Build output and caches
+target/
+target_dev/
+__pycache__/
+*.pyc
+scripts.zip
+
+# Tool and agent local state, credentials
+.claude/
+.env
+*.token
+
+# Derived from the game executable (kept local, not published)
+analysis/elf_strings.txt
+analysis/core_functions.tsv
+analysis/core_callgraph.dot
+analysis/vtables.tsv
+analysis/xrefs_362c48.txt
+analysis/xrefs_tag_handlers.txt
+analysis/abi_evidence.txt
+analysis/missed_functions.tsv
+analysis/triage.tsv
+analysis/classification.tsv
+analysis/hero_anm_patches.json
+analysis/kratos_tuning.tsv

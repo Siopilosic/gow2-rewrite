@@ -1,0 +1,9 @@
+﻿[package]
+name = "gow2-skel"
+description = "Skeleton, baked animation clips and CPU skinning for God of War II characters (no engine types)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+gow2-formats.workspace = true

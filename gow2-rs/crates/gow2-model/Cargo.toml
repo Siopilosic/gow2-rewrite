@@ -1,0 +1,9 @@
+[package]
+name = "gow2-model"
+description = "Recovered data model of the God of War II engine (analysis aid, not an implementation)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+gow2-formats.workspace = true

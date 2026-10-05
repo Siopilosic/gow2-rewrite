@@ -1,0 +1,6 @@
+#addr	size	reason
+# Globals written by interrupt handlers. Without this, Ghidra folds busy-wait loops on them
+# into infinite loops and deletes the code after them (e.g. Engine_InitWadAndServers lost 15 blocks).
+0036a6a0	4	incremented by VBlankStart_Handler 0x0018a3c8 (AddIntcHandler(2, ...) in 0x0018a408); polled at 0x0025a210, 0x0018a5a4
+002d8108	4	incremented by VBlankStart_Handler 0x0018a3c8
+002d810c	4	toggled (xor 1) by VBlankStart_Handler 0x0018a3c8

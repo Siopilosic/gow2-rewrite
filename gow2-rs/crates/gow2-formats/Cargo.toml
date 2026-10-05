@@ -1,0 +1,8 @@
+[package]
+name = "gow2-formats"
+description = "Readers for God of War II (PS2) disc and asset formats"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]

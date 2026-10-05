@@ -1,0 +1,22 @@
+[package]
+name = "gow2-bevy"
+description = "Bevy front end for the God of War II Rust port: window, input, rendering. Core logic lives in engine-free crates."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kratos-view"
+path = "src/bin/kratos_view.rs"
+
+[[bin]]
+name = "kratos-play"
+path = "src/bin/kratos_play.rs"
+
+[dependencies]
+bevy = "=0.19.1"
+gow2-formats.workspace = true
+gow2-skel.workspace = true
+gow2-kratos.workspace = true
+gow2-fx.workspace = true
+

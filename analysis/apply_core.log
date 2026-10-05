@@ -1,0 +1,7 @@
+volatile blocks created: 0
+no-return flags cleared (body contains jr ra): 0
+vtable slot targets: 3253, functions created: 0
+missed function starts: 35, functions created: 35
+structures: 13, fields: 95
+symbols renamed/labelled: 326, proposals as comments: 24, data typed: 28
+signatures applied: 37

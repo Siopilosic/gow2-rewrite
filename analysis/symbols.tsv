@@ -1,0 +1,518 @@
+#addr	kind	name	confidence	evidence	[type for data]
+# confidence: confirmed | high | medium | low.  ApplyCore.java renames only confirmed/high;
+# medium/low entries are attached as "proposed:" comments and the default name is kept.
+# Evidence references: analysis/disasm/*.s, docs/confirmed.md section numbers.
+#
+# ---- runtime / compiler support
+00100008	func	_start	confirmed	ELF entry; clears .bss 0x2fbe00-0x37f4c8, SetupThread(0x3c)/SetupHeap(0x3d) syscalls, calls main(argc,argv) then Exit
+001463b8	func	main	high	called by _start with (*0x2fbe00, 0x2fbe04) after `ei`; result passed to Exit (j 0x2d5218)
+002bf810	func	__main	high	once-flag 0x35ad40 then tail-jump to __do_global_ctors; first call in main (gcc __main convention)
+002bf760	func	__do_global_ctors	high	reads __CTOR_LIST__ 0x2de0ac: count word (-1 => scan to 0), calls entries in reverse (libgcc2 algorithm)
+002bff80	func	__pure_virtual	high	j __terminate; fills abstract slots of 13+ vtables (e.g. 0x2f6a48 slots 2-6,8-13)
+002c1500	func	__terminate	high	calls (*__terminate_func)() at 0x2db8f0
+002c14f0	func	__default_terminate	medium	value of __terminate_func; calls FUN_002c7820 and does not return
+0027b948	func	Obj_DeleteIfInChrg	confirmed	if (a1 & 1) FUN_0014aae0(a0): gcc-2.x destructor __in_chrg delete step
+0027b9a8	func	BaseObject_dtor	high	base vtable 0x2f6a48 slot 1: resets vptr to 0x2f6a48 then Obj_DeleteIfInChrg
+0014aaa8	func	Mem_New	high	alloc(size, align 8) from current heap (FUN_0014b6b0); used for every `new` of engine objects
+0014ab00	func	Mem_NewArray	medium	byte-identical to Mem_New; used for arrays in ctors
+0014aae0	func	Mem_Delete	high	null check then FUN_0014b248(p); called by Obj_DeleteIfInChrg
+00146318	func	Mem_InitRootHeap	confirmed	FUN_0014ab80(align16(end_bss), 0x1ff7ff8-start, "Root", 0, 0); canary 0x0badc0de @0x1ff7ffc
+0014ab80	func	Heap_Create	medium	called with (base, size, "Root", 0, 0) by Mem_InitRootHeap
+#
+# ---- main loop
+00187570	func	Engine_MainLoop	high	while (*0x2d7fdc == 0) Engine_Frame(); called from main
+00187540	func	Engine_Frame	high	Engine_UpdateServers(); FUN_0025ed60(); Time_UpdateFrameRate()
+00187388	func	Engine_UpdateServers	high	root vslot12/13 by root+0x30/+0x34, then g_ServerTable[5]->vslot3 (Mgr_UpdateChildren)
+00187508	func	Engine_Shutdown	medium	called by main after Engine_MainLoop returns
+00187498	func	Engine_InitSubsystems	medium	called by main; calls FUN_0025a1f0 (WAD loader init + server bootstrap) and Time_UpdateFrameRate
+00187468	func	Engine_InitCore	medium	called by main; FUN_0014d2c0, ServerTable_Init, FUN_0018a490(0x32f2d0)
+0025a1f0	func	Engine_InitWadAndServers	medium	calls Wad_InitLoader, Boot_CreateServersAndEngineResources, 13x FUN_001400c8("SCR_*", fn)
+0018a0e0	func	Time_UpdateFrameRate	medium	reads RCNT0, clamps 100..400, divides by 60 -> frame time scale
+0018a328	func	GS_InstallIntcHandler	high	AddIntcHandler(INTC_GS) + GS_CSR=6
+0018a388	func	GS_RemoveIntcHandler	high	RemoveIntcHandler(INTC_GS)
+#
+# ---- server table / root / master
+00186f18	func	ServerTable_Init	confirmed	zeroes g_ServerTable[0..255]; new(0x38) root object (vptr 0x2f6a48 -> 0x2f6968) stored in [0]
+00187048	func	Root_NewMasterServer	confirmed	root vtable 0x2f6968 slot 19: new(0x34), vptr 0x2f6a48 -> 0x2f4808 (Master_Server class), self-linked list at +0x24
+00185be0	func	Master_NewServer	confirmed	Master vtable slot 19: switch(type>>16 & 0xfff) -> new(size)+ctor for 21 server ids
+00160bc8	func	RenMaster_NewServer	confirmed	renMasterSvr vtable slot 19: ids 0x0f,0x11,0x17,0x1b,0x20, stores result in this+0x34..0x48
+0027f9f0	func	Mgr_CreateFromRecord	confirmed	Master/renMaster slot 10: r = this->vslot5(data); this->vslot6(r); return r
+0027bb10	func	Root_CreateFromRecord	confirmed	root slot 10: identical body to Mgr_CreateFromRecord
+00273290	func	Mgr_Create	confirmed	slot 5: r = vslot26(); if(!r){ r = vslot19(data); vslot22(r,data);} return r
+00272110	func	Bank_Create	confirmed	bank slot 5: same algorithm as Mgr_Create
+00272fd8	func	Mgr_AddChildSorted	confirmed	slot 6: inserts child node (child+8) into this+0x24 list, descending by child+0x10; child+4 |= 4; ++this+0x30
+002721a0	func	Bank_AddChild	confirmed	bank slot 6: appends child+8 to list +0x24/+0x28, +++0x2c, child+4 |= 4
+00273190	func	Mgr_RemoveChild	high	unlinks child+8, --this+0x30, clears child flags 0x5, calls vslot9 if flag 2 was set
+00277200	func	Mgr_UpdateChildren	confirmed	Master slot 3: for each child (desc order_key) without flag 0x10: (flags&3) ? vslot8(child)=remove : vslot7(child)=update
+0027f8f8	func	Mgr_UpdateChild	confirmed	Master slot 7: child->vslot3()
+0027f920	func	Mgr_InitChild	confirmed	Master slot 22: child->vslot2(); return 1
+0027bac0	func	Root_InitChild	confirmed	root slot 22: child->vslot2(); return 1
+00277118	func	Server_RegisterSelf	confirmed	g_ServerTable[(this->type_word>>16)&0xfff] = this (Master/renMaster slot 2)
+00142b58	func	SeqId_Assign	confirmed	seq_ids[n] = counter++ (table 0x363050, counter 0x2d79ac)
+#
+# ---- pooled servers (base vtable 0x2f68b0)
+00288b10	func	TextureServer_Init	confirmed	slot 2: g_ServerTable[id]=this; bank=vslot22(); insert in pool; default_bank_index; bank+0x30=this; bank->vslot2()
+0028bcf0	func	GOServer_Init	confirmed	slot 2: same algorithm as TextureServer_Init
+0027f278	func	TextureServer_Update	high	slot 3: pool[default_bank_index]->vslot3()
+00142b08	func	GOServer_Update	high	slot 3: same algorithm as TextureServer_Update
+0027c0b0	func	PooledServer_CreateFromRecord	confirmed	slot 10: bank = pool[vslot19(data)]; bank->vslot10(rec, data)
+0027bef0	func	PooledServer_Create	high	slot 5: pool[vslot19(data)]->vslot5(data)
+0027c140	func	PooledServer_GroupEnd	high	slot 11: pool[vslot19(data)]->vslot11(rec, data)
+00288f40	func	PooledServer_SelectBank	confirmed	slot 19 of 15 servers: data[0]<0 ? default_bank_index : ctx_stack[ctx_top]->pool_index
+0028c020	func	GOServer_SelectBank	confirmed	GOServer slot 19, same algorithm as PooledServer_SelectBank
+0028bc78	func	WadServer_SelectBank	confirmed	WadServer slot 19, same algorithm
+00142888	func	GOServer_ctor	confirmed	pooled-server ctor + vptr 0x2f6470; 0x363050[0..33] = -1; SeqId_Assign(1)
+0027ca28	func	GOServer_NewDefaultBank	confirmed	slot 22: new(0x3c) type 0x00010001, vptr 0x2f6530
+00282de8	func	TextureServer_NewDefaultBank	confirmed	slot 22: new(0x3c) type (id<<16)|id, vptr 0x2f29f0
+0027cb48	func	GOServer_PushContext	confirmed	slot 16: ctx_stack[++ctx_top]=ctx; cascades vslot16 to servers of ctx components (+0x80 list)
+0027cc00	func	GOServer_PopContext	confirmed	slot 17: returns ctx_stack[ctx_top--]; cascades vslot17
+0027ce10	func	WadServer_GetCurrent	confirmed	slot 18: ctx_top<0 ? 0 : ctx_stack[ctx_top]
+0027d6b0	func	WadServer_Push	high	slot 16: heap push (wad+0x9c), dict push (wad+0x4c), ctx_stack[++top]=wad, cascade vslot16 to components (+0x38)
+0027d788	func	WadServer_Pop	high	slot 17: pops ctx_stack, cascades vslot17
+0027d570	func	WadServer_NewDefaultBank	high	WadServer slot 22: new(0x40) bank
+#
+# ---- GO (server 1)
+0027c820	func	GOBank_NewDescriptor	high	default-bank slot 10: new(0x54) non-polymorphic descriptor from an instance record
+0027c9a8	func	GOBank_NewObject	confirmed	default-bank slot 19: new(0xa4) + GoClassA4_ctor
+00142058	func	GOBank_OnCreated	high	default-bank slot 22: obj->vslot2; insert into GOServer pool (obj+0x1c); obj+0x88=current WAD; obj+0x7c=data; component wiring
+00140248	func	GoClassA4_ctor	confirmed	0xa4 object, vptrs 0x2f6a48 -> 0x2f66f0 -> 0x2f6610, list +0x80, pools from root WAD
+001404f0	func	GoClassA4_CreateFromRecord	confirmed	vtable 0x2f6610 slot 10: subtype 0x2a / 1 / other -> 0x40 or 0x70 byte nodes
+00140450	func	GoClassA4_NewInstance	confirmed	slot 19: Pool_Alloc(this+0x8c) + FUN_0013c490(obj, data, this)
+00140498	func	GoClassA4_FreeInstance	high	slot 21: FUN_0013c5a8(obj); free obj+0x104 to pool +0x90; free obj to pool +0x8c
+0013c490	func	GoInstance120_ctor	high	ctor of 0x120-byte pool element allocated by GoClassA4_NewInstance
+#
+# ---- textures (server 7) / materials (server 8)
+00288f70	func	Bank_NewDescriptor50	medium	default-bank slot 10 of 14 pooled servers: new(0x50) from an instance record
+00291a60	func	TextureBank_CreateFromRecord	high	context-bank (vtable 0x2f7250) slot 10: obj=vslot20(); vslot22(obj,data); vslot6(obj)
+00291ae8	func	TextureBank_NewTexture	high	vtable 0x2f7250 slot 20: requires subtype 0; Pool_Alloc(this+0x48) then Texture_ctor(obj, data, rec->name)
+001745d8	func	Texture_ctor	confirmed	reads TxrPayload: names at +4/+0x1c/+0x34 looked up in current dictionary; u32 at +0x4c/+0x50/+0x54 (payload = 88 bytes, matches all disc TXR records)
+00162fa0	func	MatBank_CreateFromRecord	high	vtable 0x2f3ee8 slot 10: copies record name to 0x2fd5f0; Wad_StashRecord(data, rec->size)
+0018d758	func	Wad_StashRecord	confirmed	copies payload to 0x36a718 (size at 0x36a818), sets 0x2d8174=1, returns 0x36a718
+#
+# ---- WAD loading
+00189098	func	BootWad_DispatchRecord	confirmed	handler = g_WadTagHandlers[hdr->tag]; if(handler) handler(hdr,data); return ((size+15)&~15)+0x20. Was "Wad_ProcessRecord"
+0018d6d8	func	Wad_DispatchRecord	confirmed	byte-identical to BootWad_DispatchRecord; called by Wad_StreamUpdate
+0018d738	func	Wad_DispatchRecordNoPayload	confirmed	Wad_DispatchRecord(hdr, hdr+0x20)
+0018d9a0	func	Wad_GetTagHandler	confirmed	return g_WadTagHandlers[tag]
+0018d988	func	Wad_SetTagHandler	confirmed	g_WadTagHandlers[tag] = fn
+0018cc00	func	Wad_InitLoader	high	clears 0x17 handlers and registers them; creates 0x40000-byte stream at 0x2d8168
+0018cf70	func	Wad_StreamUpdate	high	time-sliced state machine: read 0x20 header, read/copy payload, dispatch; budget 0x781ec ticks
+00185748	func	WadTag_Object	confirmed	tag 1: server = g_ServerTable[data u16]; obj = server->vslot10(hdr,data); name registration; group linking
+00185968	func	WadTag_GroupStart	confirmed	tag 2: g_WadGroupPending = 1
+00185978	func	WadTag_GroupEnd	confirmed	tag 3: parent = group stack top; owner(parent)->vslot11(parent, hdr); pop
+001859f0	func	WadTag_ActivateByName	high	tags 5 and 0x13: obj = Dict lookup(hdr->name); r = owner(obj)->vslot5(obj); owner(r)->vslot16(r)
+00185a78	func	WadTag_06_14	medium	handler registered for tags 6 and 0x14 (name 'PopContext' seen on disc); body not analysed
+0018d7c0	func	WadTag_00	medium	handler registered for tag 0 (named-integer records on disc); body not analysed
+0018d7f8	func	WadTag_07	medium	handler registered for tag 7; body not analysed
+0018d870	func	WadTag_08	medium	handler registered for tag 8; body not analysed
+0018d8f0	func	WadTag_09	medium	handler registered for tag 9; body not analysed
+0018cb68	func	WadTag_15	medium	handler registered for tag 0x15 (first record of every WAD); body not analysed
+0018cbe0	func	WadTag_16	medium	handler registered for tag 0x16 ('PopHeap' on disc); body not analysed
+0027c228	func	Obj_AppendToChildList	high	lazily allocates list at parent+4, appends {next,prev,child}
+001871f8	func	Obj_FindByName	high	current dictionary lookup, then WadServer_GetCurrent -> Wad_FindByNameRecursive
+0018ddc0	func	Wad_FindByNameRecursive	high	dict at wad+0x4c, up to 16 child wads at +0x50, then global dict
+001816c8	func	Dict_GetCurrent	medium	returns stack[*0x32f284] of *0x32f280
+001817b8	func	Dict_Lookup	medium	returns entry+4 of FUN_001814d0
+00181860	func	Dict_Insert	medium	used by WadTag_Object to register names
+00181830	func	Dict_Replace	medium	used by WadTag_Object when the name already exists
+#
+# ---- boot records
+00189b10	func	Boot_CreateServersAndEngineResources	confirmed	25 server records, then *_engine banks for GFX/TXR/MAT/LGT/FLP, then materials "stencil"/"trail1". Was "Engine_RegisterServers"
+00189640	func	BootWad_AddServer4	confirmed	record: BeginObject(name, parent, id) + u32 {0, a3, t0, t1}; process
+00189728	func	BootWad_AddServer6	confirmed	record: BeginObject(name, parent, id) + u32 {0, a3, t0, t1, t2, t3}; process
+00189160	func	BootWad_BeginRecord	confirmed	writes u16 tag, u16 param, u32 size=0, name[24]
+00189200	func	BootWad_BeginObject	confirmed	BeginRecord(name, 1, param) + u32 (id<<16)|parent
+00189278	func	BootWad_EndAndProcess	confirmed	patch size at +4, BootWad_DispatchRecord(buf, buf+0x20)
+001890f8	func	BootWad_WriteName	confirmed	copies 24 bytes of name into the record buffer
+00189870	func	BootWad_BeginInstance	confirmed	BeginObject(name, id, 0x8000) + u32 {0,a2,a3,t0,t1} + name[24] (48-byte payload, identical to *X_ instance records on disc)
+00189998	func	BootWad_Finish	medium	returns header and payload pointers without dispatching
+001899e8	func	Boot_CreateEngineBank	high	BeginInstance(name+"_engine", id, 0x400, 0x400, ...) then owner->vslot10/5/6/16 directly
+001891d8	func	BootWad_EmitEmpty	confirmed	BeginRecord + EndAndProcess (used for GroupStart/GroupEnd records)
+0027b9a0	func	RecordData_Passthrough	confirmed	returns its second argument
+#
+# ---- data
+00362c48	data	g_ServerTable	confirmed	256 server pointers, index = server id; written by ServerTable_Init ([0]) and Server init methods. Was "g_ObjectHandleTable" (rejected)	ptr[256]
+0036a6b8	data	g_WadTagHandlers	confirmed	23 handler pointers set by Wad_SetTagHandler	ptr[23]
+00366008	data	g_WadGroupPending	confirmed	set by GroupStart, consumed by WadTag_Object	u32
+0036600c	data	g_WadGroupTop	confirmed	index into g_WadGroupStack, starts 0x10, counts down	u32
+00366010	data	g_WadGroupStack	confirmed	group parent objects	ptr[16]
+0032f758	data	g_WadStreamHeader	high	header buffer filled by Wad_StreamUpdate	WadRecordHeader
+002d8130	data	g_WadStreamState	high	Wad_StreamUpdate state (1,2,3)	u32
+002d8168	data	g_WadStream	high	stream object, 0x40000-byte buffer	ptr
+0036a718	data	g_WadStashedPayload	confirmed	Wad_StashRecord destination	u8[256]
+0036a818	data	g_WadStashedSize	confirmed	Wad_StashRecord size	u32
+002d7fdc	data	g_MainLoopExit	high	Engine_MainLoop runs while zero	u32
+00363050	data	g_SeqIds	confirmed	SeqId_Assign table, 34 entries initialised to -1 by GOServer_ctor	s32[34]
+002de0ac	data	__CTOR_LIST__	high	{2, 0x2a7728, 0x2d76f8, 0}	u32[4]
+002db8f0	data	__terminate_func	high	called by __terminate	ptr
+00337004	data	g_BootWadBuf	confirmed	2KB scratch buffer for synthesized boot records	ptr
+00337008	data	g_BootWadPos	confirmed	write cursor into g_BootWadBuf	u32
+00337000	data	g_BootWadSize	confirmed	running payload size	u32
+002f6a48	data	vt_BaseObject	confirmed	installed first by ~100 constructors; 13 pure-virtual slots
+002f6968	data	vt_RootObject	confirmed	installed by ServerTable_Init
+002f4808	data	vt_MasterServer	confirmed	installed by Root_NewMasterServer and Master_NewServer case 5
+002f68b0	data	vt_PooledServer	confirmed	installed by every pooled-server ctor before the derived vptr
+002f6470	data	vt_GOServer	confirmed	GOServer_ctor final vptr
+002f6110	data	vt_WadServer	confirmed	Master_NewServer case 0x16
+002f2930	data	vt_TextureServer	confirmed	Master_NewServer case 7
+002f6530	data	vt_GODefaultBank	confirmed	GOServer_NewDefaultBank
+002f29f0	data	vt_TextureDefaultBank	confirmed	TextureServer_NewDefaultBank
+002f6610	data	vt_GoClassA4	confirmed	GoClassA4_ctor final vptr
+002f66f0	data	vt_GoClassA4_base	confirmed	GoClassA4_ctor intermediate vptr
+002f5fc8	data	vt_ContextBankBase	medium	installed before the per-server context-bank vtable by 12 servers' default-bank slot 19
+002f7250	data	vt_TextureContextBank	medium	installed by texture default-bank slot 19 (FUN_00282c68)
+0018a3c8	func	VBlankStart_Handler	high	increments 0x36a6a0/0x2d8108, toggles 0x2d810c, ends sync/ei/return 0; registered by VBlank_InstallHandler with cause 2
+0018a408	func	VBlank_InstallHandler	high	AddIntcHandler(2, VBlankStart_Handler, 0); handler id -> 0x2d80f8; FUN_002d0300(2)
+0018a450	func	VBlank_RemoveHandler	high	FUN_002d0298(2); RemoveIntcHandler(2, *0x2d80f8)
+0018a278	func	GS_IntcHandler	high	registered by GS_InstallIntcHandler (cause 0); tests GS_CSR (0x12001000) bit 1 and writes 2 back
+0036a6a0	data	g_VBlankCount	high	incremented only by VBlankStart_Handler; boot code waits for it to change 60 times	u32
+0027f9d0	func	Mgr_RemoveChildOnUpdate	confirmed	Master slot 8: Mgr_RemoveChild(this, child); return 0. Called by Mgr_UpdateChildren for children with flags&3
+# ---- GO node messages (phase 3, runtime-prompted)
+0013d350	func	Node_SetHandler	confirmed	sw a2,0x10c(a0); sw a1,0x108(a0)
+0013d360	func	Node_GetHandler	confirmed	if a1: *a1 = node+0x10c; return node+0x108
+0013d378	func	Node_SendMessage	confirmed	fn = node+0x108; if fn: fn(node, msg, node+0x10c). Callers: GoClassA4 slots 23-25, FUN_00121b18
+00283510	func	GODefaultBank_Update	confirmed	vtable 0x2f6530 slot 3: per context push WAD/context, ctx->vslot3(), pop (C-D8)
+00140ff8	func	GoClassA4_SweepRemoved	confirmed	vtable 0x2f6610 slot 3: DFS of node tree, vslot8 on nodes with flags&3 (C-D9)
+00283410	func	GoClassA4_Init	confirmed	slot 2: alloc 0xc0 root node, node stack +0x2c/+0x6c (C-D9)
+0013bba0	func	GoNode_ctorBase	confirmed	base node: type, flags 0x20, rec +0x1c, identity +0x20, stamp +0x68 (C-D10)
+0013bf50	func	GoNode_ctor	confirmed	GoNode_ctorBase + second identity at +0x70 (C-D10)
+002d7978	data	g_MatrixStamp	high	global 64-bit counter copied to node +0x68 when its matrix changes; ~47.6 increments per VBlank in game	u64
+0021b228	func	Node_SetMatrix	high	writes node 4x4 at +0x20..+0x5f, g_MatrixStamp, node+0x68; runtime write-watch on gohero+0x50 hit here (runtime-validation.md bp-hero-pos)
+00228f90	func	Character_Update	medium	vtable 0x2f1440 slot 2; runtime: called for Kratos (obj 0x958160) every frame, ends in Node_SetMatrix(gohero). Name tentative: also enemy instances
+00224af8	func	Character_ctor	medium	installs vt 0x2f1440 at +4 after base ctor FUN_0021cc38; instances for hero, Rhodes soldiers, Colossus
+002f1440	data	vt_Character	medium	vptr at +4; 38 slots; live instances for gohero and enemies (ingame2)	ptr
+001218d8	func	EvtServer_Update	confirmed	EvtServer vtable 0x2f5178 slot 3; runtime stack: Mgr_UpdateChild -> here -> ... -> Character_Update(Kratos)
+0011d688	func	FUN_0011d688	low	vtable 0x2f50b8 slot 2; runtime stack frame between EvtServer_Update and Character_Update (name pending)
+0020bb08	func	Hero_Create	high	strings CRT_Hero/goTargetLK/MAT_swordtrail; builds Character via Character_ctor(..., is_player=1); called from Player controller slot 2 (0x26a3a0)
+0026a3a0	func	PlayerCtl_Create	high	vtable 0x2effc8 slot 2: Hero_Create(this+0x10, spawner)
+0026a350	func	PlayerCtl_TypeName	confirmed	returns "Player" (vtable 0x2effc8 slot 6)
+0026a368	func	PlayerCtl_HfsmHash	confirmed	returns FUN_00181428("hfsmPlayer", 0) (slot 9)
+0026a6e0	func	Enemy1Ctl_TypeName	confirmed	returns "Enemy1" (vtable 0x2eff70 slot 6)
+002effc8	data	vt_PlayerController	confirmed	slot6 'Player', slot9 hfsmPlayer; one live instance 0x958650 (ingame2)	ptr
+002eff70	data	vt_Enemy1Controller	confirmed	slot6 'Enemy1', slot9 hfsmEnemy1; 5 live instances (ingame2)	ptr
+002f1578	data	vt_CharacterBase	medium	abstract base of vt_Character, ctor 0x21cc38	ptr
+002f17b8	data	vt_GameEntityRoot	medium	root of the +4-vptr hierarchy, ctor 0x218ed8	ptr
+# ---- DC data and move system (pass 'tag 0x10 decoding', docs/kratos-data.md section 6)
+00120588	func	DC_TagCreate	confirmed	tag 0x0b: FUN_00120ab8(curWAD+0x48, name) creates named DC container
+001205e8	func	DC_TagBlob	confirmed	tag 0x0c: container+4 = payload (kept if param&0x2000 else heap copy)
+00120698	func	DC_TagExports	confirmed	tag 0x0d: {blob_off,name_off}[n] -> dictionary '%s_DC' = blob+off
+001207b8	func	DC_TagImports	confirmed	tag 0x0e: {blob_off,name_off}[n] -> *(blob+off) = lookup(name) - (blob+off)
+00120898	func	DC_TagIgnored0F	confirmed	tag 0x0f handler: no parsing (debug hash->name table)
+001208b8	func	DC_TagIgnored10	confirmed	tag 0x10 handler: no parsing (debug object index)
+001204c0	func	DC_Lookup	confirmed	FUN_001204f0(hash(name), scope): hash('_DC', seed=hash(name)) -> global dict or scope
+00181428	func	Hash_Name	confirmed	h = seed; for c: h = h*127 + toupper(c)
+0022c250	func	Character_SetCrt	confirmed	ch+8 = crt; ch+0xc = WAD of crt; ch+0x3c0 = rel(crt+0) (tSoldier)
+00247bd8	func	MoveSys_ExecuteActions	confirmed	per-frame action executor over MOV+0x18 list; kind switch via table 0x2eeeb0
+0024f250	func	MoveSys_EvaluateBranches	confirmed	per-frame branch evaluation of MOV+0x10 list; random among best score; queues winner
+0024e210	func	Branch_CheckInput	confirmed	button(+0x20)/press mode(+0x21)/stick(+0x22) tests
+0024eb00	func	Branch_CheckState	confirmed	flagsA/flagsB/unlock/min level/health ranges/target class tests
+0024f1e8	func	Branch_Score	confirmed	5 (0x800), 4 (0x400), 1 (button 0xb), 2/-1 (held), else 3
+00250010	func	MoveSys_QueueBranch	confirmed	ring buffer {branch,time} at moveSys+0x2b8, cap +0x2bc, head +0x2bd, tail +0x2be
+0024ea30	func	Branch_CheckSubWeapon	confirmed	flagsB 0x100..0x2000 vs selected item 0xe/0xf/0x11 active
+0024e8d0	func	Branch_CheckUnlock	confirmed	branch+0x23: unlock bits of 0x335834 or selected magic 0x335873
+0024e068	func	Character_StateMask	confirmed	mask from ch+0x170/+0x174 tested against tBranch flagsA
+0024deb0	func	Character_GetTarget	high	resolves ctx+0x48/+0x4c handle via handle table 0x2d8924
+00210690	func	Item_GetLevel	confirmed	level byte per item id (1,2,3,6,0xe,0xf,0x10,0x11) from 0x33586b..0x335872
+00210728	func	Magic_CanCast	high	reads GBL item stage cost for selected magic, FUN_00216530 meter check
+00285678	func	GameFlags_Test	confirmed	return g_0x36a81c & mask
+002d8734	data	g_PlayerCtl	confirmed	pointer to hero controller data (+0x10 of controller); *it = Character	ptr
+002d870c	data	g_GblGlobal	confirmed	pointer to GBL_Global (R_PERMA DC)	ptr
+002d8924	data	g_HandleTable	high	game-side handle table, 12-byte entries, index = handle>>23	ptr
+00335834	data	g_UnlockMask	high	branch +0x23 unlock bits (5 = GoldenParry, 0xb = Amulet)	u32
+00335873	data	g_SelectedMagic	confirmed	compared with branch +0x23 for magic casts (ids 1,2,3,6,0x10)	u8
+00335874	data	g_SelectedItem	confirmed	sub-weapon id compared in FUN_0024ea30 (0xe,0xf,0x11)	u8
+002eeeb0	data	g_ActionKindJumpTable	confirmed	32 case addresses for action kinds 1..0x20	ptr[32]
+001b6c10	func	Scr_AddPickup	high	native for script class SCR_AddPickup, descriptor slot 3, registered by FUN_001b6c80 (tools/scr_registry.py)
+00250ea0	func	Scr_AimDownUp	high	native for script class SCR_AimDownUp, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+00250e48	func	Scr_AimLeftRight	high	native for script class SCR_AimLeftRight, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+002856a8	func	Scr_AirCurrent	high	native for script class SCR_AirCurrent, descriptor slot 3, registered by FUN_00193580 (tools/scr_registry.py)
+001b4748	func	Scr_AllowOffScreen	high	native for script class SCR_AllowOffScreen, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+002888f0	func	Scr_AresSky	high	native for script class SCR_AresSky, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+001b7ac8	func	Scr_AttachToMount	high	native for script class SCR_AttachToMount, descriptor slot 3, registered by FUN_001b7c20 (tools/scr_registry.py)
+00194ab0	func	Scr_BonePoisonInject	high	native for script class SCR_BonePoisonInject, descriptor slot 3, registered by FUN_00194fb8 (tools/scr_registry.py)
+001942d0	func	Scr_BoneShotgun	high	native for script class SCR_BoneShotgun, descriptor slot 3, registered by FUN_00194fb8 (tools/scr_registry.py)
+001b4ba8	func	Scr_BoundBranchOverride	high	native for script class SCR_BoundBranchOverride, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001c0640	func	Scr_Break	high	native for script class SCR_Break, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+00196390	func	Scr_CameraObject	high	native for script class SCR_CameraObject, descriptor slot 3, registered by FUN_00196120 (tools/scr_registry.py)
+00285df8	func	Scr_CameraShake_slot1	high	native for script class SCR_CameraShake, descriptor slot 1, registered by FUN_00196a40 (tools/scr_registry.py)
+00285eb0	func	Scr_CameraShake	high	native for script class SCR_CameraShake, descriptor slot 3, registered by FUN_00196a40 (tools/scr_registry.py)
+00285ed0	func	Scr_CameraShake_slot6	high	native for script class SCR_CameraShake, descriptor slot 6, registered by FUN_00196a40 (tools/scr_registry.py)
+00285d60	func	Scr_CameraSway_slot1	high	native for script class SCR_CameraSway, descriptor slot 1, registered by FUN_001968f8 (tools/scr_registry.py)
+00285d58	func	Scr_CameraSway	high	native for script class SCR_CameraSway, descriptor slot 3, registered by FUN_001968f8 (tools/scr_registry.py)
+00285d28	func	Scr_CameraSway_slot6	high	native for script class SCR_CameraSway, descriptor slot 6, registered by FUN_001968f8 (tools/scr_registry.py)
+001b9e98	func	Scr_CancelSeekAI	high	native for script class SCR_CancelSeekAI, descriptor slot 3, registered by FUN_001ba1c8 (tools/scr_registry.py)
+001b9de8	func	Scr_CancelSeekSite	high	native for script class SCR_CancelSeekSite, descriptor slot 3, registered by FUN_001ba1c8 (tools/scr_registry.py)
+001c6ca8	func	Scr_ClearRadius	high	native for script class SCR_ClearRadius, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+002518e8	func	Scr_ClearVelocity	high	native for script class SCR_ClearVelocity, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+001b6bc8	func	Scr_Commend	high	native for script class SCR_Commend, descriptor slot 3, registered by FUN_001b6c80 (tools/scr_registry.py)
+00199de0	func	Scr_Concussion	high	native for script class SCR_Concussion, descriptor slot 3, registered by FUN_0019a008 (tools/scr_registry.py)
+00251348	func	Scr_DelayTargeting	high	native for script class SCR_DelayTargeting, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+00251478	func	Scr_DetachFromCeiling	high	native for script class SCR_DetachFromCeiling, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+002514f8	func	Scr_DetachFromGrapple	high	native for script class SCR_DetachFromGrapple, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+00251578	func	Scr_DetachFromRope	high	native for script class SCR_DetachFromRope, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+002515f8	func	Scr_DetachFromWall	high	native for script class SCR_DetachFromWall, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+001b76d0	func	Scr_DetachRider	high	native for script class SCR_DetachRider, descriptor slot 3, registered by FUN_001b7c20 (tools/scr_registry.py)
+001bbcf0	func	Scr_DisableSubWeapon	high	native for script class SCR_DisableSubWeapon, descriptor slot 3, registered by FUN_001bc058 (tools/scr_registry.py)
+001b48b0	func	Scr_DismountPegasus	high	native for script class SCR_DismountPegasus, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+0019af80	func	Scr_EarthEcho	high	native for script class SCR_EarthEcho, descriptor slot 3, registered by FUN_0019c3f8 (tools/scr_registry.py)
+0019ad48	func	Scr_EarthEnter	high	native for script class SCR_EarthEnter, descriptor slot 3, registered by FUN_0019c3f8 (tools/scr_registry.py)
+0019bd90	func	Scr_EarthRain	high	native for script class SCR_EarthRain, descriptor slot 3, registered by FUN_0019c3f8 (tools/scr_registry.py)
+0019c0b0	func	Scr_EarthRockTrigger	high	native for script class SCR_EarthRockTrigger, descriptor slot 3, registered by FUN_0019c3f8 (tools/scr_registry.py)
+0019b1b8	func	Scr_EarthStomp	high	native for script class SCR_EarthStomp, descriptor slot 3, registered by FUN_0019c3f8 (tools/scr_registry.py)
+0019ac00	func	Scr_EarthTrigger	high	native for script class SCR_EarthTrigger, descriptor slot 3, registered by FUN_0019c3f8 (tools/scr_registry.py)
+0019d590	func	Scr_ElectricCore	high	native for script class SCR_ElectricCore, descriptor slot 3, registered by FUN_0019d7a8 (tools/scr_registry.py)
+001bbca0	func	Scr_EnableSubWeapon	high	native for script class SCR_EnableSubWeapon, descriptor slot 3, registered by FUN_001bc058 (tools/scr_registry.py)
+00193b20	func	Scr_EnterFlight	high	native for script class SCR_EnterFlight, descriptor slot 3, registered by FUN_00193ca8 (tools/scr_registry.py)
+001cf588	func	Scr_Entities	high	native for script class SCR_Entities, descriptor slot 3, registered by FUN_001cf090 (tools/scr_registry.py)
+00193ba0	func	Scr_ExitFlight	high	native for script class SCR_ExitFlight, descriptor slot 3, registered by FUN_00193ca8 (tools/scr_registry.py)
+001aa7b8	func	Scr_ExplodeDeath	high	native for script class SCR_ExplodeDeath, descriptor slot 3, registered by FUN_001aa850 (tools/scr_registry.py)
+001a9928	func	Scr_EyeBeam	high	native for script class SCR_EyeBeam, descriptor slot 3, registered by FUN_001a9a58 (tools/scr_registry.py)
+00193990	func	Scr_Fade	high	native for script class SCR_Fade, descriptor slot 3, registered by FUN_00193ca8 (tools/scr_registry.py)
+002884e0	func	Scr_FarClip	high	native for script class SCR_FarClip, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+001b6a28	func	Scr_FirstTimeMsg	high	native for script class SCR_FirstTimeMsg, descriptor slot 3, registered by FUN_001b6c80 (tools/scr_registry.py)
+001b6b30	func	Scr_FlashSprite	high	native for script class SCR_FlashSprite, descriptor slot 3, registered by FUN_001b6c80 (tools/scr_registry.py)
+00251830	func	Scr_FleeceIsActive	high	native for script class SCR_FleeceIsActive, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+001baa28	func	Scr_FollowPlayer	high	native for script class SCR_FollowPlayer, descriptor slot 3, registered by FUN_001bb910 (tools/scr_registry.py)
+001bbf30	func	Scr_ForceAttachment	high	native for script class SCR_ForceAttachment, descriptor slot 3, registered by FUN_001bc058 (tools/scr_registry.py)
+00286008	func	Scr_FullScreenEffect_slot1	high	native for script class SCR_FullScreenEffect, descriptor slot 1, registered by FUN_0019da30 (tools/scr_registry.py)
+00285fe8	func	Scr_FullScreenEffect	high	native for script class SCR_FullScreenEffect, descriptor slot 3, registered by FUN_0019da30 (tools/scr_registry.py)
+00285fb8	func	Scr_FullScreenEffect_slot6	high	native for script class SCR_FullScreenEffect, descriptor slot 6, registered by FUN_0019da30 (tools/scr_registry.py)
+00288598	func	Scr_GhostTrail	high	native for script class SCR_GhostTrail, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+0019f3a8	func	Scr_GodModeComboBlast	high	native for script class SCR_GodModeComboBlast, descriptor slot 3, registered by FUN_0019f8d8 (tools/scr_registry.py)
+0019fcb0	func	Scr_GoldenActivate	high	native for script class SCR_GoldenActivate, descriptor slot 3, registered by FUN_0019fcd0 (tools/scr_registry.py)
+00286138	func	Scr_GrapplePoint_slot1	high	native for script class SCR_GrapplePoint, descriptor slot 1, registered by FUN_001a08e0 (tools/scr_registry.py)
+00286200	func	Scr_GrapplePoint	high	native for script class SCR_GrapplePoint, descriptor slot 3, registered by FUN_001a08e0 (tools/scr_registry.py)
+00286220	func	Scr_GrapplePoint_slot6	high	native for script class SCR_GrapplePoint, descriptor slot 6, registered by FUN_001a08e0 (tools/scr_registry.py)
+00231f90	func	Scr_Grid	high	native for script class SCR_Grid, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+00197770	func	Scr_GrowTimer	high	native for script class SCR_GrowTimer, descriptor slot 3, registered by FUN_00197968 (tools/scr_registry.py)
+001a1c98	func	Scr_HammerSouls	high	native for script class SCR_HammerSouls, descriptor slot 3, registered by FUN_001a1cf0 (tools/scr_registry.py)
+001a2a40	func	Scr_HermesAmulet	high	native for script class SCR_HermesAmulet, descriptor slot 3, registered by FUN_001a3238 (tools/scr_registry.py)
+002862a0	func	Scr_HermesBeam_slot1	high	native for script class SCR_HermesBeam, descriptor slot 1, registered by FUN_001a3238 (tools/scr_registry.py)
+00286368	func	Scr_HermesBeam	high	native for script class SCR_HermesBeam, descriptor slot 3, registered by FUN_001a3238 (tools/scr_registry.py)
+00286388	func	Scr_HermesBeam_slot6	high	native for script class SCR_HermesBeam, descriptor slot 6, registered by FUN_001a3238 (tools/scr_registry.py)
+001a2498	func	Scr_HermesEnable	high	native for script class SCR_HermesEnable, descriptor slot 3, registered by FUN_001a3238 (tools/scr_registry.py)
+001a28e0	func	Scr_HermesLineOfSight	high	native for script class SCR_HermesLineOfSight, descriptor slot 3, registered by FUN_001a3238 (tools/scr_registry.py)
+001bbe80	func	Scr_HideSubWeapon	high	native for script class SCR_HideSubWeapon, descriptor slot 3, registered by FUN_001bc058 (tools/scr_registry.py)
+001a3e68	func	Scr_IcarusWingsVisual	high	native for script class SCR_IcarusWingsVisual, descriptor slot 3, registered by FUN_001a3f28 (tools/scr_registry.py)
+001ba0f8	func	Scr_IgnoreHitResponse	high	native for script class SCR_IgnoreHitResponse, descriptor slot 3, registered by FUN_001ba1c8 (tools/scr_registry.py)
+001b40c8	func	Scr_Kamikaze	high	native for script class SCR_Kamikaze, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b7b58	func	Scr_KillRider	high	native for script class SCR_KillRider, descriptor slot 3, registered by FUN_001b7c20 (tools/scr_registry.py)
+00288638	func	Scr_LensFlare	high	native for script class SCR_LensFlare, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+001a5830	func	Scr_Lightning	high	native for script class SCR_Lightning, descriptor slot 3, registered by FUN_001a6a50 (tools/scr_registry.py)
+001a8318	func	Scr_MedusaHeadBeam	high	native for script class SCR_MedusaHeadBeam, descriptor slot 3, registered by FUN_001a9a58 (tools/scr_registry.py)
+001a8b20	func	Scr_MedusaHeadBomb	high	native for script class SCR_MedusaHeadBomb, descriptor slot 3, registered by FUN_001a9a58 (tools/scr_registry.py)
+001a8708	func	Scr_MedusaHeadChrgEvts	high	native for script class SCR_MedusaHeadChrgEvts, descriptor slot 3, registered by FUN_001a9a58 (tools/scr_registry.py)
+001a8518	func	Scr_MedusaHeadEvts	high	native for script class SCR_MedusaHeadEvts, descriptor slot 3, registered by FUN_001a9a58 (tools/scr_registry.py)
+001a8428	func	Scr_MedusaHeadFlash	high	native for script class SCR_MedusaHeadFlash, descriptor slot 3, registered by FUN_001a9a58 (tools/scr_registry.py)
+001a8940	func	Scr_MedusaHeadNuke	high	native for script class SCR_MedusaHeadNuke, descriptor slot 3, registered by FUN_001a9a58 (tools/scr_registry.py)
+001a81b0	func	Scr_MedusaHeadShow	high	native for script class SCR_MedusaHeadShow, descriptor slot 3, registered by FUN_001a9a58 (tools/scr_registry.py)
+001a8050	func	Scr_MedusaHeadUpdate	high	native for script class SCR_MedusaHeadUpdate, descriptor slot 3, registered by FUN_001a9a58 (tools/scr_registry.py)
+00281788	func	Scr_Mirror_slot1	high	native for script class SCR_Mirror, descriptor slot 1, registered by FUN_001363f8 (tools/scr_registry.py)
+00281840	func	Scr_Mirror	high	native for script class SCR_Mirror, descriptor slot 3, registered by FUN_001363f8 (tools/scr_registry.py)
+00281860	func	Scr_Mirror_slot6	high	native for script class SCR_Mirror, descriptor slot 6, registered by FUN_001363f8 (tools/scr_registry.py)
+001c66b0	func	Scr_Modulate	high	native for script class SCR_Modulate, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+001b47f0	func	Scr_MountPegasus	high	native for script class SCR_MountPegasus, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+00251290	func	Scr_NoPlayerBars	high	native for script class SCR_NoPlayerBars, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+00251678	func	Scr_NoPlayerJumping	high	native for script class SCR_NoPlayerJumping, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+00251128	func	Scr_NoShadow	high	native for script class SCR_NoShadow, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+001aa9d8	func	Scr_OlympusBolt	high	native for script class SCR_OlympusBolt, descriptor slot 3, registered by FUN_001ab2c0 (tools/scr_registry.py)
+001ab058	func	Scr_OlympusOrbs	high	native for script class SCR_OlympusOrbs, descriptor slot 3, registered by FUN_001ab2c0 (tools/scr_registry.py)
+001aab50	func	Scr_OlympusSphere	high	native for script class SCR_OlympusSphere, descriptor slot 3, registered by FUN_001ab2c0 (tools/scr_registry.py)
+001b3ea0	func	Scr_PegAINoAccel	high	native for script class SCR_PegAINoAccel, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b4bb8	func	Scr_PegAINoConfuse	high	native for script class SCR_PegAINoConfuse, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b3f00	func	Scr_PegTurnOffTravelers	high	native for script class SCR_PegTurnOffTravelers, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b36f8	func	Scr_PegasusBoost	high	native for script class SCR_PegasusBoost, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b3818	func	Scr_PegasusBoostCancel	high	native for script class SCR_PegasusBoostCancel, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b47b8	func	Scr_PegasusConfuseEnemy	high	native for script class SCR_PegasusConfuseEnemy, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b3dc8	func	Scr_PegasusExitLockOn	high	native for script class SCR_PegasusExitLockOn, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b3d00	func	Scr_PegasusFlight	high	native for script class SCR_PegasusFlight, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b39d8	func	Scr_PegasusForceHero	high	native for script class SCR_PegasusForceHero, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b3c20	func	Scr_PegasusLockOn	high	native for script class SCR_PegasusLockOn, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b3990	func	Scr_PegasusLockOnClear	high	native for script class SCR_PegasusLockOnClear, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b4b10	func	Scr_PegasusOffTrack	high	native for script class SCR_PegasusOffTrack, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b4660	func	Scr_PegasusRam	high	native for script class SCR_PegasusRam, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b3858	func	Scr_PegasusTraveler	high	native for script class SCR_PegasusTraveler, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001b3e68	func	Scr_PegasusWindOff	high	native for script class SCR_PegasusWindOff, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+00286960	func	Scr_Pendulum	high	native for script class SCR_Pendulum, descriptor slot 3, registered by FUN_001c83b0 (tools/scr_registry.py)
+001c84b8	func	Scr_PendulumImpulse	high	native for script class SCR_PendulumImpulse, descriptor slot 3, registered by FUN_001c83b0 (tools/scr_registry.py)
+001b5798	func	Scr_PlayFX	high	native for script class SCR_PlayFX, descriptor slot 3, registered by FUN_001b69d8 (tools/scr_registry.py)
+002513d0	func	Scr_PlayReplace	high	native for script class SCR_PlayReplace, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+001b4028	func	Scr_ProjectileModeOn	high	native for script class SCR_ProjectileModeOn, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+001a9f00	func	Scr_RepeatPress	high	native for script class SCR_RepeatPress, descriptor slot 3, registered by FUN_001aa768 (tools/scr_registry.py)
+001aa730	func	Scr_ResetHUD	high	native for script class SCR_ResetHUD, descriptor slot 3, registered by FUN_001aa768 (tools/scr_registry.py)
+001b9c98	func	Scr_RetargetAI	high	native for script class SCR_RetargetAI, descriptor slot 3, registered by FUN_001ba1c8 (tools/scr_registry.py)
+00288700	func	Scr_RopeSkinned	high	native for script class SCR_RopeSkinned, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+001b9aa0	func	Scr_SeekAI	high	native for script class SCR_SeekAI, descriptor slot 3, registered by FUN_001ba1c8 (tools/scr_registry.py)
+001b75d8	func	Scr_SeekMount	high	native for script class SCR_SeekMount, descriptor slot 3, registered by FUN_001b7c20 (tools/scr_registry.py)
+001b7448	func	Scr_SeekRider	high	native for script class SCR_SeekRider, descriptor slot 3, registered by FUN_001b7c20 (tools/scr_registry.py)
+001b98a8	func	Scr_SeekSite	high	native for script class SCR_SeekSite, descriptor slot 3, registered by FUN_001ba1c8 (tools/scr_registry.py)
+001b9f88	func	Scr_SeekTarget	high	native for script class SCR_SeekTarget, descriptor slot 3, registered by FUN_001ba1c8 (tools/scr_registry.py)
+001b6670	func	Scr_SendBreakEvent	high	native for script class SCR_SendBreakEvent, descriptor slot 3, registered by FUN_001b69d8 (tools/scr_registry.py)
+00193c30	func	Scr_SetFlightHeight	high	native for script class SCR_SetFlightHeight, descriptor slot 3, registered by FUN_00193ca8 (tools/scr_registry.py)
+002887c8	func	Scr_Shadow	high	native for script class SCR_Shadow, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+001c5250	func	Scr_Shield	high	native for script class SCR_Shield, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+00288868	func	Scr_Sky	high	native for script class SCR_Sky, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+001bb240	func	Scr_SonicScream	high	native for script class SCR_SonicScream, descriptor slot 3, registered by FUN_001bb910 (tools/scr_registry.py)
+00250fb0	func	Scr_Sound	high	native for script class SCR_Sound, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+001c7c88	func	Scr_SoundGroupMod	high	native for script class SCR_SoundGroupMod, descriptor slot 3, registered by FUN_001c7a40 (tools/scr_registry.py)
+001bb520	func	Scr_Spawn	high	native for script class SCR_Spawn, descriptor slot 3, registered by FUN_001bb910 (tools/scr_registry.py)
+001b4c10	func	Scr_StopPegasus	high	native for script class SCR_StopPegasus, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+0019a9c8	func	Scr_SubTrack	high	native for script class SCR_SubTrack, descriptor slot 3, registered by FUN_0019aad8 (tools/scr_registry.py)
+001bbd40	func	Scr_SubWeaponToggle	high	native for script class SCR_SubWeaponToggle, descriptor slot 3, registered by FUN_001bc058 (tools/scr_registry.py)
+00251698	func	Scr_SuckPlayerOrbs	high	native for script class SCR_SuckPlayerOrbs, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+001b6920	func	Scr_SwitchNavBanks	high	native for script class SCR_SwitchNavBanks, descriptor slot 3, registered by FUN_001b69d8 (tools/scr_registry.py)
+001935a8	func	Scr_Teleport	high	native for script class SCR_Teleport, descriptor slot 3, registered by FUN_00193ca8 (tools/scr_registry.py)
+001aa470	func	Scr_TimedPress	high	native for script class SCR_TimedPress, descriptor slot 3, registered by FUN_001aa768 (tools/scr_registry.py)
+002518d8	func	Scr_TrigCustIfTarLost	high	native for script class SCR_TrigCustIfTarLost, descriptor slot 3, registered by FUN_00251948 (tools/scr_registry.py)
+001bc300	func	Scr_TurnToRock	high	native for script class SCR_TurnToRock, descriptor slot 3, registered by FUN_001bc620 (tools/scr_registry.py)
+001bc130	func	Scr_UnFreeze	high	native for script class SCR_UnFreeze, descriptor slot 3, registered by FUN_001bc620 (tools/scr_registry.py)
+001b6c58	func	Scr_UpdateReticle	high	native for script class SCR_UpdateReticle, descriptor slot 3, registered by FUN_001b6c80 (tools/scr_registry.py)
+001c8a78	func	Scr_VirtualWind	high	native for script class SCR_VirtualWind, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+001b4bc8	func	Scr_VisPegasusOff	high	native for script class SCR_VisPegasusOff, descriptor slot 3, registered by FUN_001b4c48 (tools/scr_registry.py)
+00288990	func	Scr_Weather	high	native for script class SCR_Weather, descriptor slot 3, registered by FUN_0025a1f0 (tools/scr_registry.py)
+001c03a0	func	Scr_WindBlowHit	high	native for script class SCR_WindBlowHit, descriptor slot 3, registered by FUN_001c0500 (tools/scr_registry.py)
+001bd818	func	Scr_WindCharge	high	native for script class SCR_WindCharge, descriptor slot 3, registered by FUN_001c0500 (tools/scr_registry.py)
+001be760	func	Scr_WindGustPlayback	high	native for script class SCR_WindGustPlayback, descriptor slot 3, registered by FUN_001c0500 (tools/scr_registry.py)
+001c0250	func	Scr_WindShowBow	high	native for script class SCR_WindShowBow, descriptor slot 3, registered by FUN_001c0500 (tools/scr_registry.py)
+001bdb90	func	Scr_WindThrow	high	native for script class SCR_WindThrow, descriptor slot 3, registered by FUN_001c0500 (tools/scr_registry.py)
+001be280	func	Scr_WindTrigger	high	native for script class SCR_WindTrigger, descriptor slot 3, registered by FUN_001c0500 (tools/scr_registry.py)
+00105db0	func	Scr_cloth	high	native for script class SCR_cloth, descriptor slot 3, registered by FUN_0013d8b8 (tools/scr_registry.py)
+002267a8	func	Character_TryJump	high	jump request +0x3b8&1: ground/coyote jump, wall jump, ceiling drop, double jump (docs/character-update.md 8)
+002264d8	func	Character_StartJump	high	state 4, anim state 2/3 MOV_Jump/MOV_VJump (docs/character-update.md 8)
+00226600	func	Character_StartDoubleJump	high	+0x378|=4, anim state 0x17/0x18 (docs/character-update.md 8)
+00225780	func	Character_EnterFall	high	state 8, anim state 4/6/8, fall timer +0x34c (docs/character-update.md 8)
+00225aa8	func	Character_Land	medium	state 1, clears air flags (docs/character-update.md 8)
+00225720	func	Character_ApplyImpulse	high	+0xf0 impulse into +0xe0 velocity (docs/character-update.md 8)
+002199a0	func	Character_SetImpulse	high	stores impulse, flags 0x2000000/0x6000000 (docs/character-update.md 8)
+001f4348	func	Character_WallJump	high	gap jumps 0x25-0x28, kick-off from wall (docs/character-update.md 9)
+0022cb10	func	Character_GetSpeedProfile	high	vtable 0x2f1440 +0x124; moveset stack lookup in CRT+0x1c (docs/character-update.md 6.4)
+001f6000	func	Character_UpdateWall	high	free climb, ladder, wall slide, ledge hang (docs/character-update.md 10)
+001f7cd8	func	Character_UpdateSwim	high	water states 0x80/0x100/0x200 (docs/character-update.md 11)
+001f3168	func	Character_UpdateRope	high	rope state 0x400: climb, slide, hand over hand (docs/character-update.md 12)
+001f8db0	func	Character_UpdateGrapple	high	grapple hang state 0x8000: line length, swing, jump off (docs/character-update.md 13)
+00247820	func	HitWindow_Test	high	window/volume test, returns sub-hit index (docs/combat.md 2)
+00247968	func	Move_QueryHit	high	hit windows of the current move vs a victim (docs/combat.md 2)
+0024ae28	func	Combat_OnContact	high	attacker/victim contact: block or hit (docs/combat.md 3)
+00249f38	func	Combat_ApplyHit	medium	damage = window+0x16 x multiplier (docs/combat.md 4)
+0024aa68	func	Combat_HitReaction	high	event 0xc-0x14 and ground/air knock-back (docs/combat.md 3)
+0024ad78	func	Combat_KnockBack	high	impulse / mass x 16 via SetImpulse (docs/combat.md 3)
+002143f0	func	Player_DamageMultiplier	confirmed	difficulty x costume x weapon level (docs/combat.md 4.1)
+0021beb0	func	Character_TakeDamage	high	vtable 0x2f1440 +0x54; health thresholds -> finisher minigame (docs/combat.md 4.0)
+0021be98	func	Character_SetHealth	high	clamp to [0, +0x17c] (docs/combat.md 4.0)
+00270828	func	Stats_Add	high	0x36b0c8[i] += v; 2 damage dealt, 3 damage taken (docs/combat.md 4.0)
+0021bba8	func	Character_HealthThresholdEvent	medium	starts goMiniGameCircle finisher (docs/combat.md 4.0)
+00249b50	func	Combat_ContactCallback	high	collision query callback -> Combat_OnContact x2 (docs/combat.md 2.1)
+00120108	func	Node_SetContactQuery	high	copies query block into node collision component (docs/combat.md 2.1)
+002497e8	func	MoveSys_Init	medium	sets owner +0x30, registers contact query (docs/combat.md 2.1)
+0024cb78	func	MoveSys_Update	high	dequeue branches, code-requested moves, gravity scale (docs/kratos-data.md 6.4a)
+002501d0	func	MoveSys_TakeBranch	high	branch+0 target MOV, end current, start new (docs/kratos-data.md 6.4a)
+002470b8	func	Move_Start	high	instance init, start time branch+0x14, FUN_0023b310 clip start (docs/kratos-data.md 6.4a)
+002504f8	func	MoveSys_EndMove	medium	(docs/kratos-data.md 6.4a)
+0024fbd0	func	MoveSys_PostEvent	high	evaluates branches with an event code as button (docs/combat.md 7)
+00284d08	func	MoveSys_GetBlockFlags	high	(docs/combat.md 7)
+00249210	func	Move_RunScript	high	action kind 0x0d: script class by hash, instance +0x64..+0x74 (docs/magic.md 1)
+001872a0	func	Script_FindDescriptorByHash	medium	(docs/magic.md 1)
+00216418	func	Magic_Spend	confirmed	0x335840 -= cost x difficulty+8, clamp to capacity (docs/magic.md 1.1)
+00216530	func	Magic_CanAfford	confirmed	(docs/magic.md 1.1)
+00335840	data	g_MagicMeter	confirmed	magic meter f32, capacity table GBL+4 by level byte 0x335867 (docs/magic.md 1.1)	f32
+002328b0	func	CameraMgr_ctor	high	DAT_002d8dcc, The_Viewport (docs/camera.md 1)
+00234610	func	CameraMgr_Update	high	(docs/camera.md 2)
+002336e8	func	CameraMgr_SelectAndBlend	medium	priority zones, blend stack (docs/camera.md 3)
+00232c38	func	CameraMgr_SetCamera	medium	(docs/camera.md 3)
+002d8dcc	data	g_CameraMgr	high	camera manager (docs/camera.md)	ptr
+002d85e4	data	g_UI	high	UI object (0x2024 bytes), named variable table at +0x434 (docs/hud.md)	ptr
+001e1cd0	func	UI_ctor	high	registers named UI variables (docs/hud.md 1)
+001e1c40	func	UI_BindVariable	high	(docs/hud.md 1)
+0020cec8	func	HUD_UpdatePlayer	medium	(docs/hud.md 2)
+001d0fe0	func	GameEvent_Post	medium	(docs/hud.md 3)
+00335848	data	g_GodMeter	high	meter that fills on hits; UI name GodMeter_Value (docs/hud.md 1)	f32
+0024f6c0	func	MoveSys_EvaluateBank	high	bank branches, random tie-break, posts 0x0d when health <= 0 (docs/combat.md 9)
+00213c60	func	Player_UpdateSubWeaponInput	high	(docs/combat.md 10)
+00213968	func	Player_EquipSubWeapon	high	(docs/combat.md 10)
+00213a98	func	Player_UnequipSubWeapon	medium	(docs/combat.md 10)
+00193d70	func	Bone_SetEquipped	high	NB_BoneBank (docs/combat.md 10)
+001a1308	func	Hammer_SetEquipped	high	(docs/combat.md 10)
+001aa8c8	func	Olympus_SetEquipped	high	(docs/combat.md 10)
+00219c40	func	Character_PlaySound	high	hash -> virtual +0x12c -> emitter +0x1a8 (docs/audio.md 1)
+0017d758	func	SoundEmitter_Play	medium	(docs/audio.md 1)
+0025fd80	func	Character_FootEffect	high	surface ray, dust effect, footstep sound with gait register 0 (docs/effects.md 3)
+002600e0	func	Character_FootEffectAtJoint	high	joint hash -> index -> Character_FootEffect (docs/effects.md 3)
+00260128	func	Character_CliffEffect	high	wall/ceiling surface sound (docs/effects.md 3)
+0017e7f0	func	SoundEmitter_SetRegister	high	(emitter, register, value); footstep gait = register 0 (docs/effects.md 3, docs/audio.md 4.2)
+00215860	func	Hero_UpdateBodyTrail	high	head to feet-midpoint ribbon, on with move flag 2 (grapple) (docs/effects.md 5)
+0023cf28	func	Chained_Create	medium	chained weapon ctor: blade trail, chain link/glow materials (docs/effects.md 5)
+00139900	func	FxTrail_Create	medium	FX subtype 0xb trail object (docs/effects.md 5)
+0024bc40	func	Combat_DirectDamage	high	damage without a hit window; same invulnerability/filter path as weapon hits; 18 callers (docs/magic.md 4)
+0021c108	func	Character_SetPetrify	high	+0x174 |= 0x1000, event 0x15, amount +0x180, source +0x184 (docs/magic.md 4)
+00199918	func	Blast_Spawn	medium	blast record effect + growing damage volume script; 10 callers (docs/magic.md 4)
+0019cb88	func	ElectricCore_Spawn	high	goElectricCore at synchJoint, fills core slot (docs/magic.md 5)
+0019ce90	func	ElectricCore_Update	high	targets in range, bolts, pool/lifetime (docs/magic.md 5)
+0019c790	func	ElectricBolt_Hit	high	timed DirectDamage + knock-back or breakable message 0x40f (docs/magic.md 5)
+0019c500	func	ElectricBolt_Place	high	sourceJoint/targetJoint of the bolt rig (docs/magic.md 5)
+0019ccf0	func	ElectricCore_End	high	optional end blast, frees bolts (docs/magic.md 5)
+0019b3f0	func	EarthRock_Spawn	medium	goEarthRock with random ranges (docs/magic.md 6)
+0019b660	func	EarthRock_Update	medium	flight then blast on landing (docs/magic.md 6)
+001a7b50	func	MedusaFlash_Fire	medium	ray, cost +0x2c, petrify +0x24 (docs/magic.md 8)
+001a74c8	func	MedusaBeam_Update	medium	drains +0x14 meter per second (docs/magic.md 8)
+00245b48	func	Attachment_ctor	high	weapon attachment base ctor: record +0x04/+0x08/+0x0c joint names -> slots 1/2/0, mode 2 (docs/animation.md Blade attachment)
+00245f78	func	Attachment_ChooseMode	high	free joint within record+0x10 m of hand -> 1, of back -> 0, else 2; kept while +0x18&4 (docs/animation.md Blade attachment)
+00246068	func	Attachment_Update	high	reads the 3 slot joints, picks mode, places the object (docs/animation.md Blade attachment)
+0023e950	func	Chained_Update	high	blade follow (snap or 0.4 lag), chain show/hide, trail flag 0x10, trail colour (docs/animation.md Blade attachment)
+002411f0	func	Chained_ShowChain	high	+0x18 |= 0x10000
+00241348	func	Chained_HideChain	high	+0x18 &= ~0x10000, deactivates chain link/glow/stencil meshes
+00241238	func	Chained_DeactivateChainMeshes	high	server virtual +0x44 on +0x138/+0x140/+0x150
+00246680	func	Attachment_UpdateEffects	medium	per-slot effect lists; FX subtype 0xb trails follow flag 0x10 (docs/effects.md 5)
+002f0e80	data	vt_Chained	confirmed	chained attachment vtable (RAM ingame2), base vtable 0x2f1378
+00105950	func	Cloth_Update	high	per-frame cloth step: root motion, Verlet, constraints, collision, write joints (docs/animation.md Skirt cloth)
+00101ea8	func	Cloth_Init	high	grid from SCR_cloth params, pinned flags, CLT_ record lookup (docs/animation.md Skirt cloth)
+00101d80	func	Cloth_LoadCLT	high	copies CLT_ record: gravity factors, damping, box (docs/animation.md Skirt cloth)
+00102798	func	Cloth_Integrate	high	Verlet at 1/60 s, gravity -78.4 x (4.5..2), damping 0.98, up to 6 solver passes
+00104580	func	Cloth_SolveDistances	high	distance constraints along/across strands; returns summed stretch
+001033f0	func	Cloth_CollideSpheres	high	push particles out of collision spheres
+00103c30	func	Cloth_CollideTriangles	medium	flag-8 collision: cloth triangles vs spheres
+001024a0	func	Cloth_WriteJoints	medium	writes particles to the joints
+0014bf10	func	CameraClass_ctorDefault	high	camera class named "RCM_%s" (docs/camera.md 4.1)
+0014c060	func	CameraClass_ctor	high	CAM_ record +0x80..+0xe3 -> class +0x10..+0x73, rail, transitions (docs/camera.md 4.1)
+0014c3b0	func	CameraNode_ctor	medium	camera node; registers RCM_ name (docs/camera.md 4.1)
+002392b0	func	CameraInst_Update	high	target, pose dispatch (Pegasus / static / dynamic), focus distance (docs/camera.md 4.2)
+00237e28	func	CameraInst_SolveDynamic	medium	screen dead-zone framing, axis modes 3 rail / 2 distance / 0,4 stick orbit, distance clamp, yaw/pitch limits (docs/camera.md 4.5)
+00239630	func	CameraInst_Begin	medium	instance init from camera, rail start (docs/camera.md 4.2)
+002359f8	func	Camera_AnglesToTarget	medium	yaw/pitch/distance from camera matrix to target
+0014ba20	func	Curve_ClosestParam	high	NCV_ rail: closest sample to a point, P(t)=[t^3 t^2 t 1].M (docs/camera.md 4.4)
+0014b9d0	func	Curve_FindByName	high	resolves NCV_ record, sets segment and knot pointers (docs/camera.md 4.4)
+00281ec0	func	Trail_Update	high	trail clock, up to 10 interpolated samples per frame while on, age-out, colour/UV streams (docs/effects.md 5.1)
+0013a508	func	Trail_AddSample	high	transforms template points into the next ring slot, stamps time (docs/effects.md 5.1)
+0013a298	func	Trail_ClearSample	high	parks a slot (0x8000) and sets time -1
+0013a240	func	Trail_SetOn	high	+0x158 on flag
+0013a250	func	Trail_SetColour	medium	mesh +0xb0 colour
+00139900	func	Trail_Create	high	FX subtype 0xb trail object (docs/effects.md 5.1)
+00134620	func	Emitter_SpawnSphere	confirmed	subtype 6 volume sphere (kernel 0x2f7700 -> 0x298530), Maya volume parameters P+0x38..+0x54 (docs/particles.md 4.1, corrected 2026-10-03 from subtype 5)
+00134968	func	Emitter_SpawnCylinder	confirmed	subtype 7 volume cylinder (kernel 0x2f76e8 -> 0x297e40), sqrt radius, height 2r-1
+00134cb8	func	Emitter_SpawnCone	confirmed	subtype 8 volume cone (kernel 0x2f76d0 -> 0x297750)
+00135010	func	Emitter_SpawnTorus	confirmed	subtype 9 volume torus (kernel 0x2f76b8 -> 0x297060), tube = section radius P+0x3c
+001342f8	func	Emitter_SpawnCube	confirmed	subtype 5 volume cube (kernel 0x2f7718 -> 0x298c20), three 2r-1 (docs/particles.md 4)
+00133bd8	func	Emitter_SpawnOmni	confirmed	subtype 2 omni (kernel 0x2f7730 -> 0x299310): normalised random point of [-0.5,0.5]^3
+00133780	func	Emitter_DirectionalFrame	high	subtype 1: frame around direction P+0x00 (cross with up, fallback)
+00133970	func	Emitter_SpawnDirectional	confirmed	subtype 1 directional cone: polar rand*spread*pi/2, azimuth rand*2pi
+00135e48	func	Emitter_SpawnSurface	confirmed	subtype 3 surface emitter: area-weighted MSH_ triangle, barycentric point, normal speed P+0x28, tangent speed P+0x24 (docs/particles.md 4.2)
+00135d08	func	Emitter_SurfaceMatrix	high	subtype 3 spawn matrix from geometry (+0xac) and owner (+0xa8)
+00135528	func	Emitter_SpawnCurve	confirmed	subtype 4 curve emitter: random global t on NCV_ curve, tangent/normal speed P+0x24/P+0x28, spread cone (docs/particles.md 4.2)
+001353a0	func	Emitter_CurveMatrix	high	subtype 4 spawn matrix from geometry (+0xac) and owner (+0xa8)
+00132588	func	FxGeom_ctor	confirmed	subtype 13 emission geometry: flags&3 0 = NCV_ curve (FUN_0014b9d0), 1 = MSH_ mesh (FUN_0014b980)
+0014b980	func	Mesh_FindByName	confirmed	Obj_FindByName + sets +0x08 vertices, +0x0c triangles of an MSH_ record
+001363c0	func	SurfaceEmitter_NewKernel	confirmed	subtype 3 class slot 7: kernel vtable 0x2f7688 (update 0x296280)
+00135cd0	func	CurveEmitter_NewKernel	confirmed	subtype 4 class slot 7: kernel vtable 0x2f76a0 (update 0x296970)
+00296280	func	SurfaceEmitter_Update	high	subtype 3 per-frame emit/update loop (kernel 0x2f7688 slot 3)
+00296970	func	CurveEmitter_Update	high	subtype 4 per-frame emit/update loop (kernel 0x2f76a0 slot 3)
+001363f8	func	Scr_Mirror_Register	confirmed	registers native SCR_Mirror (was misread as a subtype-3 spawn routine)
+00363820	data	g_FxFactoryTable	confirmed	FX subtype -> class pointer (4 bytes each, 14 entries, RAM ingame1)
+00177210	func	View_UpdateProjection	high	+0x380 = tan(fov/2)*+0x378 (default 0.5672), projection rows at +0x100/+0x280, near/far +0x388/+0x38c
+00177440	func	View_UpdateViewport	high	+0x330 = viewport half-size (256,224), +0x340 = GS centre 2047.5, Z scale from +0x3ac (docs/particles.md 3.3.1)
+001777e8	func	View_Update	high	projection + viewport + camera matrix of a view object
+0013bb10	func	FxNode_InitTemplate	confirmed	copies record +0x08 (parent joint) and +0x0a (anim channel) into the template
+0013bd08	func	FxNode_BindTransform	confirmed	instance +0x60 = record +0x08 parent joint, +0x62 = record +0x0a anim channel (docs/particles.md 4.3)
+0013be80	func	FxNode_FindAnimChannel	confirmed	finds owner anim channel whose +0x1c == instance +0x62
+0013c010	func	FxNode_UpdateWorldMatrix	confirmed	world = local (+0x20) x owner joint matrix[+0x60]; -1 = local is world
+0013bc80	func	FxNode_InstanceCtor	high	base instance ctor: template at +0x1c, calls FxNode_BindTransform
+001327a8	func	Emitter_InstanceCtor	high	emitter instance: P at +0xa0 (template +0x44), vtable +0x70
+00132670	func	Emitter_TemplateCtor	high	0xa4-byte emitter template, P copy at +0x44

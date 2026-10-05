@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = ["crates/gow2-formats", "crates/gow2-model", "crates/gow2-cli", "crates/gow2-skel", "crates/gow2-kratos", "crates/gow2-fx", "crates/gow2-bevy"]
+
+[workspace.package]
+edition = "2021"
+version = "0.2.0"
+license = "MIT"
+
+[workspace.dependencies]
+gow2-formats = { path = "crates/gow2-formats" }
+gow2-model = { path = "crates/gow2-model" }
+gow2-skel = { path = "crates/gow2-skel" }
+gow2-kratos = { path = "crates/gow2-kratos" }
+gow2-fx = { path = "crates/gow2-fx" }
+gow2-bevy = { path = "crates/gow2-bevy" }
+
+
+# Bevy is slow unoptimised; keep our own crates debuggable but build dependencies with optimisations.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+

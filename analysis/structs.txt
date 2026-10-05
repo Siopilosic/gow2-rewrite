@@ -1,0 +1,127 @@
+# Recovered structures, applied to Ghidra by tools/ghidra_scripts/ApplyCore.java (category /GoW2).
+# Syntax:
+#   struct <Name> <size-hex>          (size 0 = grow to fit)
+#   <offset-hex> <type> <field> [; comment]
+# types: u8 u16 u32 u64 s8 s16 s32 f32 ptr char[N] <Struct> ptr:<Struct> <type>[N]
+# Field names other than field_XX are used only where docs/confirmed.md gives evidence.
+
+struct WadRecordHeader 0x20
+00 u16 tag          ; CONFIRMED BootWad_BeginRecord writes it; Wad_DispatchRecord indexes g_WadTagHandlers with it
+02 u16 param        ; CONFIRMED written by BootWad_BeginRecord; stream loader ORs 0x2000 when payload is heap-copied
+04 u32 size         ; CONFIRMED payload length; dispatch returns ((size+15)&~15)+0x20
+08 char[24] name    ; CONFIRMED copied by FUN_001890f8; looked up by Obj_FindByName
+
+struct GccVtableEntry 0x8
+00 s16 delta        ; CONFIRMED added to object pointer before every virtual call (lh N(vt); addu a0,obj,a0)
+02 s16 index        ; always 0 in all 231 recovered vtables
+04 ptr fn           ; CONFIRMED loaded and called with jalr
+
+struct ObjectHeader 0x10
+00 u32 type_word    ; CONFIRMED (record word0 & 0x0fffffff)|0x40000000; low16 = owning server index for g_ServerTable dispatch
+04 u16 flags        ; CONFIRMED init 0x20; |=4 when linked into a parent list; &0x10 skips update; &3 = removed from parent list at next update (Master vslot 8)
+06 u16 field_06     ; banks: pool index (ServerInit); GO class: 0xffff then bank+6
+08 ptr link_next    ; CONFIRMED list node used by Mgr_AddChildSorted / Bank_AddChild (node = obj+8)
+0c ptr link_prev    ; CONFIRMED
+
+struct PolyObject 0x24
+00 ObjectHeader hdr
+10 u32 order_key    ; CONFIRMED Mgr_AddChildSorted keeps Master's children sorted by this, descending; = record word[4]
+14 u32 field_14     ; = record word[3] (via RecordData_Passthrough)
+18 u32 field_18     ; = record word[2]
+1c u32 pool_index   ; init -1; GOBank_OnCreated stores GOServer pool index; read by GOServer_SelectBank
+20 ptr:GccVtableEntry vptr ; CONFIRMED gcc-2.x vptr, set base 0x002f6a48 then derived
+
+struct PoolBucket 0xc
+00 ptr items        ; CONFIRMED array of object pointers, indexed by pool index
+04 u32 count        ; CONFIRMED incremented on append
+08 u32 capacity     ; = server field_14 at construction
+
+struct MasterServer 0x34
+00 PolyObject base
+24 ptr child_head   ; CONFIRMED circular list sentinel (self-linked in ctor)
+28 ptr child_tail   ; CONFIRMED
+2c ptr insert_cursor; CONFIRMED last inserted node, search start in Mgr_AddChildSorted
+30 u32 child_count  ; CONFIRMED ++ in Mgr_AddChildSorted, -- in FUN_00273190
+
+struct RootObject 0x38
+00 PolyObject base
+24 u32 field_24
+28 u32 field_28
+2c u32 field_2c
+30 u32 field_30     ; Engine_UpdateServers: nonzero -> root vslot 12
+34 u32 field_34     ; Engine_UpdateServers: nonzero (and field_30 zero) -> root vslot 13
+
+struct PooledServer 0xd8
+00 PolyObject base
+24 ptr:PoolBucket buckets ; CONFIRMED ctor allocs 12*bucket_count; ServerInit stores default bank here
+28 ptr field_28     ; ctor: alloc(0x40)
+2c u32 field_2c     ; ctor: 0x10
+30 u32 field_30     ; ctor: 0x10
+34 ptr field_34     ; ctor: alloc(4*record word[2]); ServerInit reads indices from it when field_38 != field_3c
+38 u32 field_38     ; ctor: record word[2]; ServerInit post-increments when taking an index from field_34
+3c u32 field_3c     ; ctor: record word[2]
+40 u32 bucket_count ; CONFIRMED ctor sets 1 and loops over it allocating buckets
+44 u32 cur_bucket   ; CONFIRMED index into buckets used by every pool access
+48 ptr[32] ctx_stack; CONFIRMED context stack: Push writes [++top], SelectBank/GetCurrent read [top]
+c8 s8 ctx_top       ; CONFIRMED init 0xff (-1, empty)
+cc u32 field_cc     ; record word[5]
+d0 u32 field_d0     ; record word[6]
+d4 u32 default_bank_index ; CONFIRMED ServerInit stores the pool index of the bank created by vslot 22
+
+struct BootServerPayload 0x1c
+00 u32 type_word    ; CONFIRMED (id<<16)|parent
+04 u32 field_04     ; CONFIRMED always 0
+08 u32 arg_a3       ; CONFIRMED BootWad_AddServer arg 4 (a3); becomes header field_18
+0c u32 arg_t0       ; CONFIRMED arg 5 (t0); becomes header field_14
+10 u32 arg_t1       ; CONFIRMED arg 6 (t1); becomes header order_key
+14 u32 arg_t2       ; CONFIRMED arg 7 (t2), AddServer6 only; becomes PooledServer field_cc
+18 u32 arg_t3       ; CONFIRMED arg 8 (t3), AddServer6 only; becomes PooledServer field_d0
+
+struct InstanceRecordPayload 0x30
+00 u32 type_word    ; CONFIRMED bit31 set: 0x80000000|server
+04 u32 field_04     ; 0 on disc
+08 u32 field_08     ; e.g. 0x400 (GFXX), 0x200
+0c u32 field_0c
+10 u32 field_10
+14 u32 field_14
+18 char[24] name    ; CONFIRMED FUN_00189870 copies a name here; empty on disc
+
+struct TxrPayload 0x58
+00 u32 type_word    ; CONFIRMED 0x00000007
+04 char[24] gfx_name; CONFIRMED Texture_ctor looks it up -> TextureObject.gfx (all 9200 sampled TXR records: GFX_*)
+1c char[24] pal_name; CONFIRMED -> TextureObject.pal (PAL_*)
+34 char[24] ref3_name ; CONFIRMED looked up -> TextureObject field_18
+4c u32 field_4c     ; -> TextureObject field_58
+50 u32 field_50     ; -> TextureObject field_5c
+54 u32 field_54     ; -> TextureObject field_20 (zero-extended to 64 bits)
+
+struct TextureObject 0x70
+00 ObjectHeader hdr ; size of whole object not yet recovered (pool element); not polymorphic
+10 ptr gfx          ; CONFIRMED overwrites header order_key slot: object found by gfx_name
+14 ptr pal          ; CONFIRMED object found by pal_name
+18 ptr field_18     ; object found by ref3_name
+20 u64 field_20
+28 u64 field_28     ; copy of field_20
+58 u32 field_58
+5c u32 field_5c
+60 u32 field_60
+64 u32 field_64     ; gfx->+0x50
+68 u32 field_68     ; pal->+0x50
+6c u32 field_6c     ; init -1
+
+struct GoClassA4 0xa4
+00 PolyObject base  ; vptr chain 0x002f6a48 -> 0x002f66f0 -> 0x002f6610
+6c u8 field_6c      ; 0xff
+70 u32 field_70
+74 u32 field_74     ; 1
+78 u32 field_78
+7c ptr record_data  ; CONFIRMED GOBank_OnCreated stores the creating payload pointer
+80 ptr comp_head    ; CONFIRMED list of component objects (pushed/popped with the context)
+84 ptr comp_tail
+88 ptr wad          ; CONFIRMED WadServer current WAD at creation
+8c ptr pool_120     ; CONFIRMED element size 0x120 (instances, see GoClassA4 vslot 19)
+90 ptr pool_a0      ; element size 0xa0
+94 ptr pool_8       ; element size 8
+98 u32 field_98     ; descriptor word at +0x50
+9c u32 field_9c
+a0 u32 field_a0

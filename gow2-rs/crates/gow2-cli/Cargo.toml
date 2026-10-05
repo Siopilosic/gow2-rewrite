@@ -1,0 +1,15 @@
+[package]
+name = "gow2-cli"
+description = "Analysis tools for the God of War II reverse-engineering project"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "gow2"
+path = "src/main.rs"
+
+[dependencies]
+gow2-formats.workspace = true
+gow2-model.workspace = true
+png = "0.17"
