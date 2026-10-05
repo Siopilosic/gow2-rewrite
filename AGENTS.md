@@ -15,6 +15,9 @@ Start with `README.md` and `docs/research-status.md`. Goal and order of work: `d
 ## One source of truth
 - The model lives in `analysis/symbols.tsv`, `structs.txt`, `sigs.tsv`, `volatile.tsv`. Keep it
   authoritative; do not create parallel copies of the same facts.
+- Feature rows (one per behaviour, with evidence level and missing evidence) live in
+  `analysis/features.db` (SQLite3, tool `tools/features_db.py`). The TSV model files stay
+  authoritative for names, types and signatures. Do not keep a second copy of feature rows.
 - Never hand-patch generated output (`analysis/exports/`, `analysis/disasm/`, `analysis/core_decomp/`,
   `docs/core-functions.md`, `*.tsv` produced by `tools/`). Fix the generating tool or the model and
   regenerate.
